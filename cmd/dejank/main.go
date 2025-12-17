@@ -99,10 +99,12 @@ func runURL(cfg *modes.Config, args []string) {
 	var progress *ui.Progress
 	cfg.OnProgress = func(event string, data interface{}) {
 		switch event {
-		case "scripts_found":
-			total := data.(int)
-			if total > 0 && !cfg.Verbose {
-				progress = ui.NewProgress(total, "Processing scripts")
+		case "discovery_complete":
+			if m, ok := data.(map[string]int); ok {
+				total := m["scripts"]
+				if total > 0 && !cfg.Verbose {
+					progress = ui.NewProgress(total, "Processing scripts")
+				}
 			}
 		case "processing_script":
 			if progress != nil {
@@ -195,8 +197,8 @@ func runLocal(cfg *modes.Config, args []string) {
 
 func printURLSummary(result *modes.URLResult, verbose bool) {
 	fmt.Println(ui.SummaryHeader())
-	fmt.Println(ui.SummaryLine("Scripts found:", result.ScriptsFound))
-	fmt.Println(ui.SummaryLine("Scripts processed:", result.ScriptsProcessed))
+	fmt.Println(ui.SummaryLine("Scripts discovered:", result.ScriptsFound))
+	fmt.Println(ui.SummaryLine("Maps discovered:", result.MapsDiscovered))
 	fmt.Println(ui.SummaryLine("Sources restored:", result.SourcesRestored))
 	fmt.Println(ui.SummaryLine("Assets extracted:", result.AssetsExtracted))
 

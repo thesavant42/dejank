@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/thesavant42/dejank/internal/format"
 )
 
 var (
@@ -61,10 +63,7 @@ func RestoreSources(sm *SourceMap, outputDir string) RestoreResult {
 // sanitizePath cleans a source path for safe filesystem use.
 func sanitizePath(source string) string {
 	// Remove webpack:// prefix
-	path := source
-	if strings.HasPrefix(path, "webpack://") {
-		path = strings.TrimPrefix(path, "webpack://")
-	}
+	path := strings.TrimPrefix(source, "webpack://")
 
 	// Remove leading ./ or multiple ./
 	for strings.HasPrefix(path, "./") {
@@ -116,12 +115,16 @@ func sanitizePathSegment(segment string) string {
 }
 
 // writeFile writes content to a file, creating parent directories as needed.
+// JS/TS files are pretty-printed before writing.
 func writeFile(path, content string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	return os.WriteFile(path, []byte(content), 0644)
+	// Pretty-print JS/TS files (non-JS files pass through unchanged)
+	formatted := format.Format(content, path)
+
+	return os.WriteFile(path, []byte(formatted), 0644)
 }
 

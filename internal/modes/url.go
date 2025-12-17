@@ -9,23 +9,23 @@ import (
 	"strings"
 
 	"github.com/thesavant42/dejank/internal/assets"
+	"github.com/thesavant42/dejank/internal/fetch"
 	"github.com/thesavant42/dejank/internal/sourcemap"
 	"github.com/thesavant42/dejank/internal/ui"
-
-	"golang.org/x/net/html"
 )
 
 // URLResult contains the results of processing a URL.
 type URLResult struct {
 	URL             string
 	ScriptsFound    int
-	ScriptsProcessed int
+	MapsDiscovered  int
 	SourcesRestored int
 	AssetsExtracted int
 	Errors          []error
 }
 
-// RunURL crawls a webpage, downloads scripts and sourcemaps, and restores sources.
+// RunURL crawls a webpage using headless Chrome, discovers all scripts and sourcemaps,
+// and restores sources.
 func RunURL(cfg *Config, targetURL string) (*URLResult, error) {
 	// Require scheme
 	if !strings.HasPrefix(targetURL, "http://") && !strings.HasPrefix(targetURL, "https://") {
@@ -51,34 +51,44 @@ func RunURL(cfg *Config, targetURL string) (*URLResult, error) {
 		return nil, err
 	}
 
-	// Fetch the HTML page
-	htmlContent, err := cfg.Client.Get(targetURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch page: %w", err)
+	// Use browser client to discover resources via JS execution
+	if cfg.Verbose {
+		fmt.Println(ui.Info("Launching headless browser..."))
 	}
 
-	// Extract script URLs
-	scriptURLs := extractScriptURLs(htmlContent, targetURL)
-	result.ScriptsFound = len(scriptURLs)
+	browser := fetch.NewBrowserClient()
+	discovered, err := browser.DiscoverResources(targetURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover resources: %w", err)
+	}
+
+	result.ScriptsFound = len(discovered.Scripts)
 
 	if cfg.Verbose {
-		fmt.Println(ui.Info(fmt.Sprintf("Found %d script(s) on %s", len(scriptURLs), targetURL)))
+		fmt.Println(ui.Info(fmt.Sprintf("Discovered %d scripts via browser", result.ScriptsFound)))
 	}
-	cfg.emit("scripts_found", result.ScriptsFound)
 
-	// Process each script
-	for i, scriptURL := range scriptURLs {
+	cfg.emit("discovery_complete", map[string]int{
+		"scripts": result.ScriptsFound,
+	})
+
+	// Track discovered maps to avoid duplicates
+	processedMaps := make(map[string]bool)
+
+	for i, scriptURL := range discovered.Scripts {
 		cfg.emit("processing_script", map[string]interface{}{
 			"index": i,
-			"total": len(scriptURLs),
+			"total": len(discovered.Scripts),
 			"url":   scriptURL,
 		})
-		if err := processScript(cfg, scriptURL, paths, result); err != nil {
+
+		if err := processScriptForMaps(cfg, scriptURL, paths, result, processedMaps); err != nil {
 			result.Errors = append(result.Errors, err)
-		} else {
-			result.ScriptsProcessed++
 		}
 	}
+
+	// MapsDiscovered is the count of unique maps we found and processed
+	result.MapsDiscovered = len(processedMaps)
 
 	// Extract embedded assets from restored sources
 	if cfg.Verbose {
@@ -91,105 +101,17 @@ func RunURL(cfg *Config, targetURL string) (*URLResult, error) {
 	return result, nil
 }
 
-// extractScriptURLs parses HTML and returns all script src URLs.
-func extractScriptURLs(htmlContent, baseURL string) []string {
-	doc, err := html.Parse(strings.NewReader(htmlContent))
-	if err != nil {
-		return nil
-	}
-
-	var urls []string
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "script" {
-			for _, attr := range n.Attr {
-				if attr.Key == "src" && attr.Val != "" {
-					resolved, err := resolveURL(baseURL, attr.Val)
-					if err == nil {
-						urls = append(urls, resolved)
-					}
-				}
-			}
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(doc)
-
-	return urls
-}
-
-// processScript downloads a script, finds its sourcemap, and restores sources.
-func processScript(cfg *Config, scriptURL string, paths DomainPaths, result *URLResult) error {
-	filename := filenameFromURL(scriptURL)
-	scriptPath := filepath.Join(paths.DownloadedSite, filename)
-
-	// Download the script
-	if err := cfg.Client.Download(scriptURL, scriptPath); err != nil {
-		return fmt.Errorf("failed to download %s: %w", scriptURL, err)
-	}
-
-	if cfg.Verbose {
-		fmt.Println(ui.Success(fmt.Sprintf("Downloaded: %s", filename)))
-	}
-
-	// Read script content
-	content, err := os.ReadFile(scriptPath)
-	if err != nil {
-		return fmt.Errorf("failed to read downloaded script: %w", err)
-	}
-
-	jsContent := string(content)
-
-	// Check for inline sourcemap first
-	if sourcemap.HasInlineSourceMap(jsContent) {
-		sm, err := sourcemap.ExtractInlineSourceMap(jsContent)
-		if err != nil {
-			return fmt.Errorf("failed to extract inline sourcemap: %w", err)
-		}
-		if sm != nil {
-			// Save the inline map for reference
-			mapPath := scriptPath + ".inline.map"
-			mapJSON, _ := json.MarshalIndent(sm, "", "  ")
-			os.WriteFile(mapPath, mapJSON, 0644)
-
-			if cfg.Verbose {
-				fmt.Println(ui.Success(fmt.Sprintf("Extracted inline sourcemap: %s", filepath.Base(mapPath))))
-			}
-
-			restoreResult := sourcemap.RestoreSources(sm, paths.RestoredSources)
-			result.SourcesRestored += restoreResult.RestoredCount
-			result.Errors = append(result.Errors, restoreResult.Errors...)
-			return nil
-		}
-	}
-
-	// Look for external sourcemap URL
-	mapURL := sourcemap.ExtractSourceMappingURL(jsContent)
-	if mapURL == "" {
-		if cfg.Verbose {
-			fmt.Println(ui.Warning(fmt.Sprintf("No sourcemap found for: %s", filename)))
-		}
-		return nil
-	}
-
-	// Resolve relative map URL
-	resolvedMapURL, err := resolveURL(scriptURL, mapURL)
-	if err != nil {
-		return fmt.Errorf("failed to resolve map URL: %w", err)
-	}
-
-	if cfg.Verbose {
-		fmt.Println(ui.Info(fmt.Sprintf("Found sourcemap: %s", resolvedMapURL)))
-	}
-
-	// Download the sourcemap
-	mapFilename := filenameFromURL(resolvedMapURL)
+// processSourceMap downloads and processes a sourcemap URL.
+func processSourceMap(cfg *Config, mapURL string, paths DomainPaths, result *URLResult) error {
+	mapFilename := filenameFromURL(mapURL)
 	mapPath := filepath.Join(paths.DownloadedSite, mapFilename)
 
-	if err := cfg.Client.Download(resolvedMapURL, mapPath); err != nil {
-		return fmt.Errorf("failed to download sourcemap: %w", err)
+	if cfg.Verbose {
+		fmt.Println(ui.Info(fmt.Sprintf("Downloading sourcemap: %s", mapFilename)))
+	}
+
+	if err := cfg.Client.Download(mapURL, mapPath); err != nil {
+		return fmt.Errorf("failed to download sourcemap %s: %w", mapURL, err)
 	}
 
 	if cfg.Verbose {
@@ -209,3 +131,82 @@ func processScript(cfg *Config, scriptURL string, paths DomainPaths, result *URL
 	return nil
 }
 
+// processScriptForMaps downloads a script and checks for inline/external sourcemaps
+// that weren't caught by network interception.
+func processScriptForMaps(cfg *Config, scriptURL string, paths DomainPaths, result *URLResult, processedMaps map[string]bool) error {
+	filename := filenameFromURL(scriptURL)
+	scriptPath := filepath.Join(paths.DownloadedSite, filename)
+
+	// Download the script
+	if err := cfg.Client.Download(scriptURL, scriptPath); err != nil {
+		return fmt.Errorf("failed to download %s: %w", scriptURL, err)
+	}
+
+	// Read script content
+	content, err := os.ReadFile(scriptPath)
+	if err != nil {
+		return fmt.Errorf("failed to read downloaded script: %w", err)
+	}
+
+	jsContent := string(content)
+
+	// Check for inline sourcemap first
+	if sourcemap.HasInlineSourceMap(jsContent) {
+		// Use script URL as unique key for inline maps
+		inlineKey := scriptURL + ":inline"
+		if processedMaps[inlineKey] {
+			return nil
+		}
+
+		sm, err := sourcemap.ExtractInlineSourceMap(jsContent)
+		if err != nil {
+			return fmt.Errorf("failed to extract inline sourcemap: %w", err)
+		}
+		if sm != nil {
+			processedMaps[inlineKey] = true
+
+			// Save the inline map for reference
+			mapPath := scriptPath + ".inline.map"
+			mapJSON, _ := json.MarshalIndent(sm, "", "  ")
+			os.WriteFile(mapPath, mapJSON, 0644)
+
+			if cfg.Verbose {
+				fmt.Println(ui.Success(fmt.Sprintf("Extracted inline sourcemap: %s", filepath.Base(mapPath))))
+			}
+
+			restoreResult := sourcemap.RestoreSources(sm, paths.RestoredSources)
+			result.SourcesRestored += restoreResult.RestoredCount
+			result.Errors = append(result.Errors, restoreResult.Errors...)
+			return nil
+		}
+	}
+
+	// Look for external sourcemap URL that wasn't caught by network interception
+	mapURL := sourcemap.ExtractSourceMappingURL(jsContent)
+	if mapURL == "" {
+		return nil
+	}
+
+	// Resolve relative map URL
+	resolvedMapURL, err := resolveURL(scriptURL, mapURL)
+	if err != nil {
+		return fmt.Errorf("failed to resolve map URL: %w", err)
+	}
+
+	// Skip if already processed
+	if processedMaps[resolvedMapURL] {
+		return nil
+	}
+	processedMaps[resolvedMapURL] = true
+
+	if cfg.Verbose {
+		fmt.Println(ui.Info(fmt.Sprintf("Found additional sourcemap: %s", resolvedMapURL)))
+	}
+
+	// Process this map
+	if err := processSourceMap(cfg, resolvedMapURL, paths, result); err != nil {
+		return err
+	}
+
+	return nil
+}
