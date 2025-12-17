@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/thesavant42/dejank/internal/assets"
+	"github.com/thesavant42/dejank/internal/envars"
 	"github.com/thesavant42/dejank/internal/fetch"
 	"github.com/thesavant42/dejank/internal/sourcemap"
 	"github.com/thesavant42/dejank/internal/ui"
@@ -16,12 +17,13 @@ import (
 
 // URLResult contains the results of processing a URL.
 type URLResult struct {
-	URL             string
-	ScriptsFound    int
-	MapsDiscovered  int
-	SourcesRestored int
-	AssetsExtracted int
-	Errors          []error
+	URL              string
+	ScriptsFound     int
+	MapsDiscovered   int
+	SourcesRestored  int
+	AssetsExtracted  int
+	EnvVarsExtracted int
+	Errors           []error
 }
 
 // RunURL crawls a webpage using headless Chrome, discovers all scripts and sourcemaps,
@@ -106,6 +108,40 @@ func RunURL(cfg *Config, targetURL string) (*URLResult, error) {
 
 	// MapsDiscovered is the count of unique maps we found and processed
 	result.MapsDiscovered = len(processedMaps)
+
+	// Extract environment variables from all downloaded JS files
+	if cfg.Verbose {
+		fmt.Println(ui.Info("Extracting environment variables from bundled JS..."))
+	}
+	allEnvVars := make(map[string]string)
+	entries, err := os.ReadDir(paths.DownloadedSite)
+	if err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".js") {
+				continue
+			}
+			jsPath := filepath.Join(paths.DownloadedSite, entry.Name())
+			content, err := os.ReadFile(jsPath)
+			if err != nil {
+				continue
+			}
+			extractedVars := envars.ExtractEnvVars(string(content))
+			allEnvVars = envars.MergeEnvVars(allEnvVars, extractedVars)
+		}
+	}
+
+	// Write .env file if we found any environment variables
+	if len(allEnvVars) > 0 {
+		envPath := filepath.Join(paths.RestoredSources, ".env")
+		if err := envars.WriteEnvFile(allEnvVars, envPath); err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("failed to write .env file: %w", err))
+		} else {
+			result.EnvVarsExtracted = len(allEnvVars)
+			if cfg.Verbose {
+				fmt.Println(ui.Success(fmt.Sprintf("Extracted %d environment variable(s) to .env", len(allEnvVars))))
+			}
+		}
+	}
 
 	// Extract embedded assets from restored sources
 	if cfg.Verbose {

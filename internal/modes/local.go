@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/thesavant42/dejank/internal/assets"
+	"github.com/thesavant42/dejank/internal/envars"
 	"github.com/thesavant42/dejank/internal/sourcemap"
 	"github.com/thesavant42/dejank/internal/ui"
 )
@@ -18,6 +19,7 @@ type LocalResult struct {
 	MapsProcessed    int
 	SourcesRestored  int
 	AssetsExtracted  int
+	EnvVarsExtracted int
 	Errors           []error
 }
 
@@ -89,6 +91,9 @@ func processLocalDomain(cfg *Config, domainPath string, result *LocalResult) err
 		return fmt.Errorf("failed to read download directory: %w", err)
 	}
 
+	// Collect environment variables from all JS files
+	allEnvVars := make(map[string]string)
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -104,10 +109,31 @@ func processLocalDomain(cfg *Config, domainPath string, result *LocalResult) err
 			}
 		}
 
-		// Process .js files (check for inline sourcemaps)
+		// Process .js files (check for inline sourcemaps and extract env vars)
 		if strings.HasSuffix(filename, ".js") {
 			if err := processJSFile(cfg, fullPath, downloadDir, restoreDir, result); err != nil {
 				result.Errors = append(result.Errors, err)
+			}
+
+			// Extract environment variables from bundled JS
+			extractedVars, err := extractEnvVarsFromFile(fullPath)
+			if err != nil {
+				result.Errors = append(result.Errors, err)
+			} else {
+				allEnvVars = envars.MergeEnvVars(allEnvVars, extractedVars)
+			}
+		}
+	}
+
+	// Write .env file if we found any environment variables
+	if len(allEnvVars) > 0 {
+		envPath := filepath.Join(restoreDir, ".env")
+		if err := envars.WriteEnvFile(allEnvVars, envPath); err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("failed to write .env file: %w", err))
+		} else {
+			result.EnvVarsExtracted += len(allEnvVars)
+			if cfg.Verbose {
+				fmt.Println(ui.Success(fmt.Sprintf("Extracted %d environment variable(s) to .env", len(allEnvVars))))
 			}
 		}
 	}
@@ -125,6 +151,16 @@ func processLocalDomain(cfg *Config, domainPath string, result *LocalResult) err
 	}
 
 	return nil
+}
+
+// extractEnvVarsFromFile reads a JS file and extracts inlined environment variables.
+func extractEnvVarsFromFile(jsPath string) (map[string]string, error) {
+	content, err := os.ReadFile(jsPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s for env vars: %w", filepath.Base(jsPath), err)
+	}
+
+	return envars.ExtractEnvVars(string(content)), nil
 }
 
 // processMapFile parses a .map file and restores sources.
@@ -151,7 +187,7 @@ func processMapFile(cfg *Config, mapPath, restoreDir string, result *LocalResult
 }
 
 // processJSFile checks for inline sourcemaps and extracts them.
-func processJSFile(cfg *Config, jsPath, downloadDir, restoreDir string, result *LocalResult) error {
+func processJSFile(cfg *Config, jsPath, _ /* downloadDir */, restoreDir string, result *LocalResult) error {
 	content, err := os.ReadFile(jsPath)
 	if err != nil {
 		return fmt.Errorf("failed to read %s: %w", filepath.Base(jsPath), err)
@@ -191,4 +227,3 @@ func processJSFile(cfg *Config, jsPath, downloadDir, restoreDir string, result *
 
 	return nil
 }
-
