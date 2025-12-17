@@ -10,7 +10,7 @@ import (
 
 // Cyberpunk 2077 / Luxium color palette
 var (
-	ColorPink    = lipgloss.Color("#FF66FF") // Primary text - lighter magenta
+	ColorPink    = lipgloss.Color("#deb7ff") // Primary text - lighter magenta
 	ColorYellow  = lipgloss.Color("#FFFF00") // Keywords, accents, headers - pure yellow
 	ColorCyan    = lipgloss.Color("#00FFFF") // Info, URLs, highlights - pure cyan
 	ColorGreen   = lipgloss.Color("#00FF00") // Success, progress - pure green
