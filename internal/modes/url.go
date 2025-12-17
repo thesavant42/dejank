@@ -75,6 +75,23 @@ func RunURL(cfg *Config, targetURL string) (*URLResult, error) {
 	// Track discovered maps to avoid duplicates
 	processedMaps := make(map[string]bool)
 
+	// Process sourcemaps discovered via network interception and response headers
+	for _, mapURL := range discovered.SourceMaps {
+		if processedMaps[mapURL] {
+			continue
+		}
+		processedMaps[mapURL] = true
+
+		if cfg.Verbose {
+			fmt.Println(ui.Info(fmt.Sprintf("Processing discovered sourcemap: %s", mapURL)))
+		}
+
+		if err := processSourceMap(cfg, mapURL, paths, result); err != nil {
+			result.Errors = append(result.Errors, err)
+		}
+	}
+
+	// Process scripts to find additional sourcemaps via inline/header references
 	for i, scriptURL := range discovered.Scripts {
 		cfg.emit("processing_script", map[string]interface{}{
 			"index": i,
