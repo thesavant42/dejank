@@ -160,7 +160,6 @@ func (p *Progress) Done() {
 	time.Sleep(100 * time.Millisecond) // Let animation finish
 	close(p.quit)
 	p.program.Wait()
-	fmt.Println() // Newline after progress
 }
 
 // SimpleSpinner shows a simple inline spinner for short operations

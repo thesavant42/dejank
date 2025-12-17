@@ -88,7 +88,7 @@ func RunURL(cfg *Config, targetURL string) (*URLResult, error) {
 			fmt.Println(ui.Info(fmt.Sprintf("Processing discovered sourcemap: %s", mapURL)))
 		}
 
-		if err := processSourceMap(cfg, mapURL, paths, result); err != nil {
+		if err := processSourceMap(cfg, mapURL, paths, result, targetURL); err != nil {
 			result.Errors = append(result.Errors, err)
 		}
 	}
@@ -101,7 +101,7 @@ func RunURL(cfg *Config, targetURL string) (*URLResult, error) {
 			"url":   scriptURL,
 		})
 
-		if err := processScriptForMaps(cfg, scriptURL, paths, result, processedMaps); err != nil {
+		if err := processScriptForMaps(cfg, scriptURL, paths, result, processedMaps, targetURL); err != nil {
 			result.Errors = append(result.Errors, err)
 		}
 	}
@@ -151,11 +151,19 @@ func RunURL(cfg *Config, targetURL string) (*URLResult, error) {
 	result.AssetsExtracted = assetResult.ExtractedCount
 	result.Errors = append(result.Errors, assetResult.Errors...)
 
+	// Download webpack static assets (SVGs, images, etc.) and replace fake loader files
+	if cfg.Verbose {
+		fmt.Println(ui.Info("Downloading webpack static assets..."))
+	}
+	downloadResult := assets.DownloadWebpackAssets(targetURL, paths.RestoredSources, cfg.Client)
+	result.AssetsExtracted += downloadResult.DownloadedCount
+	result.Errors = append(result.Errors, downloadResult.Errors...)
+
 	return result, nil
 }
 
 // processSourceMap downloads and processes a sourcemap URL.
-func processSourceMap(cfg *Config, mapURL string, paths DomainPaths, result *URLResult) error {
+func processSourceMap(cfg *Config, mapURL string, paths DomainPaths, result *URLResult, baseURL string) error {
 	mapFilename := filenameFromURL(mapURL)
 	mapPath := filepath.Join(paths.DownloadedSite, mapFilename)
 
@@ -177,8 +185,14 @@ func processSourceMap(cfg *Config, mapURL string, paths DomainPaths, result *URL
 		return fmt.Errorf("failed to parse sourcemap: %w", err)
 	}
 
-	restoreResult := sourcemap.RestoreSources(sm, paths.RestoredSources)
+	// Use options to enable real asset fetching
+	opts := &sourcemap.RestoreOptions{
+		BaseURL: baseURL,
+		Fetcher: cfg.Client,
+	}
+	restoreResult := sourcemap.RestoreSourcesWithOptions(sm, paths.RestoredSources, opts)
 	result.SourcesRestored += restoreResult.RestoredCount
+	result.AssetsExtracted += restoreResult.AssetsFetched
 	result.Errors = append(result.Errors, restoreResult.Errors...)
 
 	return nil
@@ -186,7 +200,7 @@ func processSourceMap(cfg *Config, mapURL string, paths DomainPaths, result *URL
 
 // processScriptForMaps downloads a script and checks for inline/external sourcemaps
 // that weren't caught by network interception.
-func processScriptForMaps(cfg *Config, scriptURL string, paths DomainPaths, result *URLResult, processedMaps map[string]bool) error {
+func processScriptForMaps(cfg *Config, scriptURL string, paths DomainPaths, result *URLResult, processedMaps map[string]bool, baseURL string) error {
 	filename := filenameFromURL(scriptURL)
 	scriptPath := filepath.Join(paths.DownloadedSite, filename)
 
@@ -227,8 +241,14 @@ func processScriptForMaps(cfg *Config, scriptURL string, paths DomainPaths, resu
 				fmt.Println(ui.Success(fmt.Sprintf("Extracted inline sourcemap: %s", filepath.Base(mapPath))))
 			}
 
-			restoreResult := sourcemap.RestoreSources(sm, paths.RestoredSources)
+			// Use options to enable real asset fetching
+			opts := &sourcemap.RestoreOptions{
+				BaseURL: baseURL,
+				Fetcher: cfg.Client,
+			}
+			restoreResult := sourcemap.RestoreSourcesWithOptions(sm, paths.RestoredSources, opts)
 			result.SourcesRestored += restoreResult.RestoredCount
+			result.AssetsExtracted += restoreResult.AssetsFetched
 			result.Errors = append(result.Errors, restoreResult.Errors...)
 			return nil
 		}
@@ -257,7 +277,7 @@ func processScriptForMaps(cfg *Config, scriptURL string, paths DomainPaths, resu
 	}
 
 	// Process this map
-	if err := processSourceMap(cfg, resolvedMapURL, paths, result); err != nil {
+	if err := processSourceMap(cfg, resolvedMapURL, paths, result, baseURL); err != nil {
 		return err
 	}
 

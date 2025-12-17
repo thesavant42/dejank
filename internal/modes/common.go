@@ -81,7 +81,7 @@ func sanitizeDomain(domain string) string {
 	if idx := strings.LastIndex(domain, ":"); idx != -1 {
 		domain = domain[:idx]
 	}
-	return domain
+	return domain + "-dejank"
 }
 
 // resolveURL resolves a potentially relative URL against a base URL.

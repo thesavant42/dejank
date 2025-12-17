@@ -84,7 +84,12 @@ func RunSingle(cfg *Config, scriptURL string) (*SingleResult, error) {
 				fmt.Println(ui.Success(fmt.Sprintf("Extracted inline sourcemap: %s", filepath.Base(mapPath))))
 			}
 
-			restoreResult := sourcemap.RestoreSources(sm, paths.RestoredSources)
+			// Use options to enable real asset fetching
+			opts := &sourcemap.RestoreOptions{
+				BaseURL: scriptURL,
+				Fetcher: cfg.Client,
+			}
+			restoreResult := sourcemap.RestoreSourcesWithOptions(sm, paths.RestoredSources, opts)
 			result.SourcesRestored = restoreResult.RestoredCount
 			result.Errors = restoreResult.Errors
 			return result, nil
@@ -130,7 +135,12 @@ func RunSingle(cfg *Config, scriptURL string) (*SingleResult, error) {
 		return nil, fmt.Errorf("failed to parse sourcemap: %w", err)
 	}
 
-	restoreResult := sourcemap.RestoreSources(sm, paths.RestoredSources)
+	// Use options to enable real asset fetching
+	opts := &sourcemap.RestoreOptions{
+		BaseURL: scriptURL,
+		Fetcher: cfg.Client,
+	}
+	restoreResult := sourcemap.RestoreSourcesWithOptions(sm, paths.RestoredSources, opts)
 	result.SourcesRestored = restoreResult.RestoredCount
 	result.Errors = restoreResult.Errors
 
