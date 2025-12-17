@@ -27,6 +27,11 @@ type URLResult struct {
 
 // RunURL crawls a webpage, downloads scripts and sourcemaps, and restores sources.
 func RunURL(cfg *Config, targetURL string) (*URLResult, error) {
+	// Require scheme
+	if !strings.HasPrefix(targetURL, "http://") && !strings.HasPrefix(targetURL, "https://") {
+		return nil, fmt.Errorf("invalid URL: must include http:// or https:// scheme")
+	}
+
 	result := &URLResult{URL: targetURL}
 
 	// Parse URL to get hostname

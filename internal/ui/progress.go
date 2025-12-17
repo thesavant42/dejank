@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Progress displays a progress bar with percentage
+// Progress displays a neon-styled progress bar with percentage
 type Progress struct {
 	total     int
 	current   int
@@ -52,7 +52,7 @@ func (p *Progress) Done() {
 	fmt.Println() // Move to next line
 }
 
-// render displays the progress bar (overwrites current line)
+// render displays the neon progress bar (overwrites current line)
 func (p *Progress) render() {
 	if p.total == 0 {
 		return
@@ -62,19 +62,20 @@ func (p *Progress) render() {
 	filled := int(percent * float64(p.width))
 	empty := p.width - filled
 
-	bar := SuccessStyle.Render(strings.Repeat("=", filled)) +
-		DimStyle.Render(strings.Repeat("-", empty))
+	// Neon green fill, dim empty
+	bar := SuccessStyle.Render(strings.Repeat("━", filled)) +
+		DimStyle.Render(strings.Repeat("━", empty))
 
 	status := fmt.Sprintf("%d/%d", p.current, p.total)
 	percentStr := fmt.Sprintf("%.0f%%", percent*100)
 
 	// Carriage return to overwrite line
-	fmt.Printf("\r%s %s [%s] %s %s",
+	fmt.Printf("\r%s %s %s %s %s",
 		PrefixInfo,
-		DimStyle.Render(p.message),
-		bar,
+		TextStyle.Render(p.message),
+		InfoStyle.Render("["+bar+"]"),
 		ValueStyle.Render(status),
-		DimStyle.Render(percentStr))
+		AccentStyle.Render(percentStr))
 }
 
 // SimpleSpinner shows a simple inline spinner for short operations
@@ -112,8 +113,8 @@ func (s *SimpleSpinner) Start() {
 				s.mu.Unlock()
 				fmt.Printf("\r%s %s%s   ",
 					PrefixInfo,
-					DimStyle.Render(s.message),
-					DimStyle.Render(frame))
+					TextStyle.Render(s.message),
+					AccentStyle.Render(frame))
 			}
 		}
 	}()
@@ -131,4 +132,3 @@ func (s *SimpleSpinner) StopWithMessage(msg string) {
 	close(s.done)
 	fmt.Printf("\r%s\n", msg)
 }
-

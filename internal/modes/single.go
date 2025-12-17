@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/thesavant42/dejank/internal/sourcemap"
 	"github.com/thesavant42/dejank/internal/ui"
@@ -21,6 +22,11 @@ type SingleResult struct {
 
 // RunSingle downloads a single script URL, finds its sourcemap, and restores sources.
 func RunSingle(cfg *Config, scriptURL string) (*SingleResult, error) {
+	// Require scheme
+	if !strings.HasPrefix(scriptURL, "http://") && !strings.HasPrefix(scriptURL, "https://") {
+		return nil, fmt.Errorf("invalid URL: must include http:// or https:// scheme")
+	}
+
 	result := &SingleResult{URL: scriptURL}
 
 	// Parse URL to get hostname
