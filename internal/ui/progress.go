@@ -75,10 +75,6 @@ func (m progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m progressModel) View() string {
-	if m.done {
-		return ""
-	}
-
 	status := fmt.Sprintf("%d/%d", m.current, m.total)
 	percentStr := fmt.Sprintf("%.0f%%", m.percent*100)
 
