@@ -17,7 +17,8 @@ var (
 	// export default __webpack_public_path__ + "static/media/filename.hash.ext";
 	// export default __webpack_public_path__ + "path/to/asset.ext";
 	// export default "path/to/asset.ext";
-	webpackAssetRe = regexp.MustCompile(`export\s+default\s+(?:__webpack_public_path__\s*\+\s*)?"([^"]+\.(svg|png|jpg|jpeg|gif|webp|ico|woff|woff2|ttf|eot|otf|mp3|wav|ogg|mp4|webm))";?`)
+	// module.exports = __webpack_public_path__ + "path/to/asset.ext";
+	webpackAssetRe = regexp.MustCompile(`(?:export\s+default|module\.exports\s*=)\s+(?:__webpack_public_path__\s*\+\s*)?"([^"]+\.(svg|png|jpg|jpeg|gif|webp|ico|woff|woff2|ttf|eot|otf|mp3|wav|ogg|mp4|webm))";?`)
 )
 
 // DownloadResult contains the results of a webpack asset download operation.

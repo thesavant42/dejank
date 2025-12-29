@@ -9,7 +9,7 @@ import (
 	"github.com/thesavant42/dejank/internal/ui"
 )
 
-var version = "1.0.7"
+var version = "1.0.9"
 
 func main() {
 	// Global flags

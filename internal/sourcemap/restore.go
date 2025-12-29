@@ -19,7 +19,8 @@ var (
 	// Matches webpack asset exports:
 	// export default __webpack_public_path__ + "static/media/file.hash.ext"
 	// export default "static/media/file.hash.ext"
-	webpackAssetExportRe = regexp.MustCompile(`export\s+default\s+(?:__webpack_public_path__\s*\+\s*)?"([^"]+)"`)
+	// module.exports = __webpack_public_path__ + "static/media/file.hash.ext"
+	webpackAssetExportRe = regexp.MustCompile(`(?:export\s+default|module\.exports\s*=)\s+(?:__webpack_public_path__\s*\+\s*)?"([^"]+)"`)
 
 	// Media file extensions that might be webpack loader stubs
 	mediaExtensions = map[string]bool{
@@ -53,6 +54,7 @@ func isJavaScriptContent(content string) bool {
 	jsStarters := []string{
 		"import ", "import{", "import(",
 		"export ", "export{",
+		"module.exports",
 		"var ", "let ", "const ",
 		"function ", "function(",
 		"//", "/*",
@@ -267,4 +269,3 @@ func writeFile(path, content string) error {
 
 	return os.WriteFile(path, []byte(formatted), 0644)
 }
-

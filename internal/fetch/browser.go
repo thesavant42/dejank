@@ -35,8 +35,33 @@ func NewBrowserClient() *BrowserClient {
 }
 
 // DiscoverResources loads a URL in headless Chrome, executes all JavaScript,
-// and returns all discovered script and sourcemap URLs.
+// and returns all discovered script and sourcemap URLs. Retries on transient errors.
 func (b *BrowserClient) DiscoverResources(targetURL string) (*DiscoveredResources, error) {
+	const maxRetries = 3
+	baseBackoff := 2 * time.Second
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := baseBackoff * (1 << (attempt - 1)) // 2s, 4s, 8s
+			time.Sleep(backoff)
+		}
+
+		result, err := b.discoverResourcesOnce(targetURL)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+
+		if !isRetryable(err) {
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
+
+// discoverResourcesOnce performs a single attempt to discover resources.
+func (b *BrowserClient) discoverResourcesOnce(targetURL string) (*DiscoveredResources, error) {
 	// Suppress chromedp's noisy error logging for unknown CDP values
 	log.SetOutput(io.Discard)
 	defer log.SetOutput(log.Writer())
@@ -139,6 +164,15 @@ func (b *BrowserClient) DiscoverResources(targetURL string) (*DiscoveredResource
 	result.BaseURL = finalURL
 
 	return result, nil
+}
+
+// isRetryable checks if an error is transient and worth retrying.
+func isRetryable(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "could not dial") ||
+		strings.Contains(msg, "connectex") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "context deadline exceeded")
 }
 
 // isJavaScriptURL checks if a URL points to a JavaScript file.

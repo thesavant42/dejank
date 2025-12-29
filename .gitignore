@@ -14,4 +14,7 @@
 *.env.development.local
 *.env.test.local
 *.env.production.local
+*.txt
+*.ps1
+*.html
 *-dejank
